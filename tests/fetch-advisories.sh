@@ -102,4 +102,15 @@ pkg_hash=$(sha256sum "$REPO_DIR_TMP/mise-bin-1.0.0-1-x86_64.pkg.tar.zst" | awk '
   exit 1
 }
 
+# Empty vulns means the source has no report yet: do not write a "clean" feed.
+printf '{ "vulns": [] }\n' >"$work/osv-empty.json"
+rm -f "$feed_file"
+OSV_STUB_RESPONSE="$work/osv-empty.json" PATH="$work/bin:$PATH" \
+  "$ROOT/bin/fetch-advisories" --mirror edge --arch x86_64 \
+  --feed "$FEED" --purl-map "$work/purls" --package mise-bin >/dev/null
+[[ ! -f $feed_file ]] || {
+  echo "empty OSV vulns must not write a feed (row stays missing)" >&2
+  exit 1
+}
+
 echo "PASS: fetch-advisories writes a version-pinned OSV feed without touching packages"
