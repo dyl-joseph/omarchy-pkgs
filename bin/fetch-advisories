@@ -1,7 +1,9 @@
 #!/bin/bash
-# Query OSV for published OPR versions and write a versioned advisory feed.
-# (omacom/omarchy-pkgs#378) Does not rebuild packages. Does not write the
-# sidecar; pipe the feed into bin/sync-advisories.
+# Ingest CVE records from OSV for published OPR versions; write a versioned
+# feed. (omacom/omarchy-pkgs#378) This is not a package scanner. If OSV has
+# no report yet, write nothing and let ingest mark the row missing.
+# Does not rebuild packages. Does not write the sidecar; pipe the feed
+# into bin/sync-advisories.
 #
 # Usage:
 #   bin/fetch-advisories [--mirror edge] [--arch x86_64] [--package mise-bin...]

@@ -3,12 +3,14 @@
 #
 # The sidecar is OPR-published metadata, not PKGBUILD content: it answers
 # "which known CVEs apply to this published version, and how fresh is that
-# answer?" without rebuilding the package.
+# answer?" by ingesting existing CVE sources. OPR does not scan the
+# package. A version with no source report yet is missing, fail-open.
 #
 # Location: beside the pacman database in every channel/arch tree:
 #   pkgs.omarchy.org/<channel>/<arch>/omarchy.advisories.json (+ .sig)
 #
-# Schema v1 (no safety_score, no capability tags):
+# Schema v1 (no safety_score, no capability tags; those would be a
+# separate app/repo if they ever exist):
 #   {
 #     "schema": 1, "channel": "edge", "arch": "x86_64",
 #     "generated_at": "<UTC ISO-8601>",

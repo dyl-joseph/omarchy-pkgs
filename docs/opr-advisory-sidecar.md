@@ -6,6 +6,15 @@ OPR-built packages are silent there. The sidecar answers, for each
 answer is — without rebuilding the package.
 
 This is OPR-published metadata, not a maintainer score in the PKGBUILD.
+OPR does **not** scan package bits. It **ingests CVE records from
+existing sources** (OSV first; NVD or a vendor feed can map onto the
+same fields). If a version hits OPR before those sources know it, the
+row stays `missing` until a later refresh finds a report. That is
+expected, not a hole in this pipeline.
+
+Risk facets of the code itself (opens ports, filesystem, privilege)
+are out of scope here. If those ever exist they belong in a **separate
+application and repository**, not in omarchy-pkgs.
 
 ## What it is
 
@@ -46,9 +55,10 @@ not stamp the live package.
   is measured on (`CVSSv3`, or a named distro mapping). A severity
   without a scale is a feed bug (`scan_status=error`).
 - `advisory_as_of`: when the CVE data was current at the source.
-- `scanned_at`: when OPR ingest wrote this entry.
-- `scan_source`: feed the report came from (`osv.dev` preferred;
-  NVD/vendor feeds map onto the same fields).
+- `scanned_at`: when the producer queried the source (copied through
+  ingest when present; otherwise when ingest wrote the row).
+- `scan_source`: which existing CVE source the report came from
+  (`osv.dev` preferred). Not an OPR scanner.
 - `scan_status`: `ok` | `stale` | `missing` | `error`.
 
 There is deliberately **no** composite `safety_score` and **no**
@@ -108,13 +118,15 @@ published-tree commands (`--local` forces local execution).
 
 Missing and stale are first-class, not edge cases:
 
-- `missing`: never scanned. Visible, fail-open (warn, do not block).
+- `missing`: no existing source has a report for this published
+  version yet (common when OPR ships first). Visible, fail-open
+  (warn, do not block).
 - `stale`: `advisory_as_of` older than `--stale-after` (default 72h).
   Visible, fail-open.
 - `error`: feed unparseable, unreadable timestamp, or severity
   without a scale. Visible, fail-open, needs OPR triage.
-- `ok`: fresh scan, even when `cve_ids` is non-empty. A known CVE is
-  information, not a build failure.
+- `ok`: a fresh report from the source, even when `cve_ids` is
+  non-empty. A known CVE is information, not a build failure.
 
 Default for v1 is **visible + warn; unknown does not block**. Policy
 files on the client may opt into fail-closed; that policy lives with
