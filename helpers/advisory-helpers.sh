@@ -3,17 +3,20 @@
 #
 # The sidecar is OPR-published metadata, not PKGBUILD content: it answers
 # "which known CVEs apply to this published version, and how fresh is that
-# answer?" without rebuilding the package.
+# answer?" by ingesting existing CVE sources. OPR does not scan the
+# package. A version with no source report yet is missing, fail-open.
 #
 # Location: beside the pacman database in every channel/arch tree:
 #   pkgs.omarchy.org/<channel>/<arch>/omarchy.advisories.json (+ .sig)
 #
-# Schema v1 (no safety_score, no capability tags):
+# Schema v1 (no safety_score, no capability tags; those would be a
+# separate app/repo if they ever exist):
 #   {
 #     "schema": 1, "channel": "edge", "arch": "x86_64",
 #     "generated_at": "<UTC ISO-8601>",
 #     "advisories": {
-#       "<pkgname>": {
+#       "<pkgname>:<pkgver>-<pkgrel>:<arch>": {
+#         "pkgname": "pkgname",
 #         "pkgver": "1.2.3", "pkgrel": "1", "arch": "x86_64",
 #         "artifact": "pkgname-1.2.3-1-x86_64.pkg.tar.zst",
 #         "cve_ids": ["CVE-2026-0001"],
@@ -26,10 +29,8 @@
 #     }
 #   }
 #
-# Keying: entries are keyed by package name; each entry pins pkgver/pkgrel/
-# arch/artifact so a reader can tell the scan belongs to the installed
-# version. A version change without a rescan reads as stale/missing, never
-# as clean.
+# Keying: pkgname:pkgver-pkgrel:arch. The value repeats those fields plus
+# artifact. A feed for another version does not stamp the live package.
 #
 # Writer: OPR-operated ingest only (bin/sync-advisories). Maintainers must
 # not write CVE data in .omarchy/package.json or the PKGBUILD. The sidecar
@@ -57,6 +58,18 @@ advisory_valid_status() {
   esac
 }
 
+# Identity used as the sidecar object key and the feed path stem.
+advisory_identity_key() {
+  local name="$1" pkgver="$2" pkgrel="$3" arch="$4"
+  echo "${name}:${pkgver}-${pkgrel}:${arch}"
+}
+
+# Feed file for one published artifact: <feed>/<pkgname>/<pkgver>-<pkgrel>/<arch>.json
+advisory_feed_path() {
+  local feed_dir="$1" name="$2" pkgver="$3" pkgrel="$4" arch="$5"
+  echo "${feed_dir}/${name}/${pkgver}-${pkgrel}/${arch}.json"
+}
+
 # Validate a sidecar file. Prints an error and returns 1 when invalid.
 advisory_validate_sidecar() {
   local sidecar="$1"
@@ -74,18 +87,20 @@ advisory_validate_sidecar() {
   # must be stated whenever a severity is claimed (error entries record the
   # malformed report verbatim for triage, so they are exempt).
   jq -e '
-    (.advisories // {}) | to_entries | map(.value) | all(
-      (.pkgver | type == "string") and
-      (.pkgrel | type == "string") and
-      (.arch | type == "string") and
-      ((.cve_ids // null) == null or (.cve_ids | type == "array")) and
-      ((.cve_max_severity // null) == null or (.cve_max_severity | type == "string")) and
-      ((.scan_status // "") | IN("ok", "stale", "missing", "error")) and
-      (if .scan_status == "error" then true
-       elif (.cve_max_severity // "NONE") == "NONE" then true
-       else ((.severity_scale // "") | length > 0) end) and
-      (if (.scan_status == "ok" or .scan_status == "stale")
-       then ((.scanned_at // "") | length > 0) else true end)
+    (.advisories // {}) | to_entries | all(
+      (.value.pkgname | type == "string") and
+      (.value.pkgver | type == "string") and
+      (.value.pkgrel | type == "string") and
+      (.value.arch | type == "string") and
+      (.key == (.value.pkgname + ":" + .value.pkgver + "-" + .value.pkgrel + ":" + .value.arch)) and
+      ((.value.cve_ids // null) == null or (.value.cve_ids | type == "array")) and
+      ((.value.cve_max_severity // null) == null or (.value.cve_max_severity | type == "string")) and
+      ((.value.scan_status // "") | IN("ok", "stale", "missing", "error")) and
+      (if .value.scan_status == "error" then true
+       elif (.value.cve_max_severity // "NONE") == "NONE" then true
+       else ((.value.severity_scale // "") | length > 0) end) and
+      (if (.value.scan_status == "ok" or .value.scan_status == "stale")
+       then ((.value.scanned_at // "") | length > 0) else true end)
     )
   ' "$sidecar" >/dev/null || {
     echo "advisory sidecar failed v1 validation: $sidecar" >&2

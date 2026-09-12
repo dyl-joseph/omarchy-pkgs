@@ -9,14 +9,17 @@
 # every .pkg.tar.zst keeps its bytes.
 #
 # Feed directory layout (OPR-operated ingest input, not checked-in CVE data):
-#   <feed>/<pkgname>.json  e.g. feed/mise-bin.json:
+#   <feed>/<pkgname>/<pkgver>-<pkgrel>/<arch>.json
+#   e.g. feed/mise-bin/1.0.0-1/x86_64.json:
 #   {
+#     "pkgname": "mise-bin", "pkgver": "1.0.0", "pkgrel": "1", "arch": "x86_64",
 #     "cve_ids": ["CVE-2026-12345"],
 #     "cve_max_severity": "HIGH", "severity_scale": "CVSSv3",
 #     "advisory_as_of": "2026-09-10T00:00:00Z",
 #     "scan_source": "osv.dev", "note": "optional context"
 #   }
 # A missing file means "not yet scanned" (scan_status=missing, fail-open).
+# A feed for another version never stamps the live package.
 # An unreadable file or a severity without a scale means scan_status=error.
 # Preferred live source is OSV (https://osv.dev); NVD/vendor feeds map onto
 # the same fields. Only the fields above are read; unknown keys are ignored.
@@ -53,7 +56,8 @@ Options:
   --channel <name>            Alias for --mirror
   --arch <x86_64|aarch64>     Architecture (default: x86_64)
   --package <names...>        Refresh only the named package(s)
-  --feed <dir>                Per-package JSON feed dir (default: ./advisories-feed)
+  --feed <dir>                Versioned JSON feed dir (default: ./advisories-feed;
+                              <pkgname>/<pkgver>-<pkgrel>/<arch>.json)
   --stale-after <duration>    Mark scans older than this stale (default: 72h;
                               bare seconds or s/m/h/d suffix)
   --dry-run                   Show the plan; write nothing
@@ -205,13 +209,14 @@ ERROR_COUNT=0
 while IFS=$'\t' read -r name version db_arch filename; do
   package_wanted "$name" || continue
   IFS=$'\t' read -r pkgver pkgrel < <(split_pkgver_pkgrel "$version")
-  feed="$FEED_DIR/$name.json"
+  key=$(advisory_identity_key "$name" "$pkgver" "$pkgrel" "$ARCH")
+  feed=$(advisory_feed_path "$FEED_DIR" "$name" "$pkgver" "$pkgrel" "$ARCH")
 
   if [[ ! -f "$feed" ]]; then
     MISSING_COUNT=$((MISSING_COUNT + 1))
-    jq -c -n --arg name "$name" --arg pkgver "$pkgver" --arg pkgrel "$pkgrel" \
+    jq -c -n --arg key "$key" --arg name "$name" --arg pkgver "$pkgver" --arg pkgrel "$pkgrel" \
       --arg arch "$ARCH" --arg artifact "$filename" \
-      '{key: $name, value: {pkgver: $pkgver, pkgrel: $pkgrel, arch: $arch,
+      '{key: $key, value: {pkgname: $name, pkgver: $pkgver, pkgrel: $pkgrel, arch: $arch,
         artifact: $artifact, cve_ids: [], cve_max_severity: "NONE",
         severity_scale: "CVSSv3", advisory_as_of: null, scanned_at: null,
         scan_source: null, scan_status: "missing",
@@ -222,14 +227,34 @@ while IFS=$'\t' read -r name version db_arch filename; do
 
   if ! feed_json=$(jq -c '.' "$feed" 2>/dev/null); then
     ERROR_COUNT=$((ERROR_COUNT + 1))
-    jq -c -n --arg name "$name" --arg pkgver "$pkgver" --arg pkgrel "$pkgrel" \
+    jq -c -n --arg key "$key" --arg name "$name" --arg pkgver "$pkgver" --arg pkgrel "$pkgrel" \
       --arg arch "$ARCH" --arg artifact "$filename" --arg now "$NOW_UTC" \
       --arg source "feed-parse" \
-      '{key: $name, value: {pkgver: $pkgver, pkgrel: $pkgrel, arch: $arch,
+      '{key: $key, value: {pkgname: $name, pkgver: $pkgver, pkgrel: $pkgrel, arch: $arch,
         artifact: $artifact, cve_ids: [], cve_max_severity: "UNKNOWN",
         severity_scale: "CVSSv3", advisory_as_of: null, scanned_at: $now,
         scan_source: $source, scan_status: "error",
         note: "OPR ingest could not parse the feed report; visible, fail-open."}}' \
+      >>"$ENTRIES"
+    continue
+  fi
+
+  feed_name=$(jq -r '.pkgname // empty' <<<"$feed_json")
+  feed_pkgver=$(jq -r '.pkgver // empty' <<<"$feed_json")
+  feed_pkgrel=$(jq -r '.pkgrel // empty' <<<"$feed_json")
+  feed_arch=$(jq -r '.arch // empty' <<<"$feed_json")
+  if [[ -n $feed_name && $feed_name != "$name" ]] ||
+    [[ -n $feed_pkgver && $feed_pkgver != "$pkgver" ]] ||
+    [[ -n $feed_pkgrel && $feed_pkgrel != "$pkgrel" ]] ||
+    [[ -n $feed_arch && $feed_arch != "$ARCH" ]]; then
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+    jq -c -n --arg key "$key" --arg name "$name" --arg pkgver "$pkgver" --arg pkgrel "$pkgrel" \
+      --arg arch "$ARCH" --arg artifact "$filename" --arg now "$NOW_UTC" \
+      '{key: $key, value: {pkgname: $name, pkgver: $pkgver, pkgrel: $pkgrel, arch: $arch,
+        artifact: $artifact, cve_ids: [], cve_max_severity: "UNKNOWN",
+        severity_scale: "CVSSv3", advisory_as_of: null, scanned_at: $now,
+        scan_source: "feed-identity", scan_status: "error",
+        note: "Feed identity does not match the published package version; visible, fail-open."}}' \
       >>"$ENTRIES"
     continue
   fi
@@ -240,17 +265,19 @@ while IFS=$'\t' read -r name version db_arch filename; do
   advisory_as_of=$(jq -r '.advisory_as_of // ""' <<<"$feed_json")
   scan_source=$(jq -r '.scan_source // "osv.dev"' <<<"$feed_json")
   note=$(jq -r '.note // ""' <<<"$feed_json")
+  scanned_at=$(jq -r '.scanned_at // empty' <<<"$feed_json")
   [[ -z "$advisory_as_of" ]] && advisory_as_of=$(iso_of_file_mtime "$feed")
+  [[ -z "$scanned_at" ]] && scanned_at="$NOW_UTC"
 
   # A claimed severity without a stated scale is a feed bug: fail closed on
   # the entry (status=error), fail open on policy (never block).
   if [[ "$severity" != "NONE" && "$severity" != "UNKNOWN" && -z "$scale" ]]; then
     ERROR_COUNT=$((ERROR_COUNT + 1))
-    jq -c -n --arg name "$name" --arg pkgver "$pkgver" --arg pkgrel "$pkgrel" \
+    jq -c -n --arg key "$key" --arg name "$name" --arg pkgver "$pkgver" --arg pkgrel "$pkgrel" \
       --arg arch "$ARCH" --arg artifact "$filename" --arg now "$NOW_UTC" \
       --argjson cve_ids "$cve_ids" --arg severity "$severity" \
       --arg as_of "$advisory_as_of" --arg source "$scan_source" \
-      '{key: $name, value: {pkgver: $pkgver, pkgrel: $pkgrel, arch: $arch,
+      '{key: $key, value: {pkgname: $name, pkgver: $pkgver, pkgrel: $pkgrel, arch: $arch,
         artifact: $artifact, cve_ids: $cve_ids, cve_max_severity: $severity,
         severity_scale: "", advisory_as_of: $as_of, scanned_at: $now,
         scan_source: $source, scan_status: "error",
@@ -262,12 +289,12 @@ while IFS=$'\t' read -r name version db_arch filename; do
   as_of_epoch=$(date -u -d "$advisory_as_of" +%s 2>/dev/null || echo 0)
   if [[ "$as_of_epoch" -le 0 ]]; then
     ERROR_COUNT=$((ERROR_COUNT + 1))
-    jq -c -n --arg name "$name" --arg pkgver "$pkgver" --arg pkgrel "$pkgrel" \
+    jq -c -n --arg key "$key" --arg name "$name" --arg pkgver "$pkgver" --arg pkgrel "$pkgrel" \
       --arg arch "$ARCH" --arg artifact "$filename" --arg now "$NOW_UTC" \
       --argjson cve_ids "$cve_ids" --arg severity "$severity" \
       --arg scale "$scale" --arg as_of "$advisory_as_of" --arg source "$scan_source" \
       --arg note "$note" \
-      '{key: $name, value: {pkgver: $pkgver, pkgrel: $pkgrel, arch: $arch,
+      '{key: $key, value: {pkgname: $name, pkgver: $pkgver, pkgrel: $pkgrel, arch: $arch,
         artifact: $artifact, cve_ids: $cve_ids, cve_max_severity: $severity,
         severity_scale: $scale, advisory_as_of: $as_of, scanned_at: $now,
         scan_source: $source, scan_status: "error",
@@ -288,23 +315,23 @@ while IFS=$'\t' read -r name version db_arch filename; do
     status_note="$note"
   fi
 
-  jq -c -n --arg name "$name" --arg pkgver "$pkgver" --arg pkgrel "$pkgrel" \
+  jq -c -n --arg key "$key" --arg name "$name" --arg pkgver "$pkgver" --arg pkgrel "$pkgrel" \
     --arg arch "$ARCH" --arg artifact "$filename" --arg now "$NOW_UTC" \
     --argjson cve_ids "$cve_ids" --arg severity "$severity" \
     --arg scale "$scale" --arg as_of "$advisory_as_of" --arg source "$scan_source" \
-    --arg status "$status" --arg note "$status_note" \
-    '{key: $name, value: {pkgver: $pkgver, pkgrel: $pkgrel, arch: $arch,
+    --arg status "$status" --arg note "$status_note" --arg scanned_at "$scanned_at" \
+    '{key: $key, value: {pkgname: $name, pkgver: $pkgver, pkgrel: $pkgrel, arch: $arch,
       artifact: $artifact, cve_ids: $cve_ids, cve_max_severity: $severity,
-      severity_scale: $scale, advisory_as_of: $as_of, scanned_at: $now,
+      severity_scale: $scale, advisory_as_of: $as_of, scanned_at: $scanned_at,
       scan_source: $source, scan_status: $status, note: $note}}' \
     >>"$ENTRIES"
 done < <(read_db_manifest)
 
-# Preserve entries for packages not refreshed in a filtered (--package) run.
+# Preserve entries whose package name was not in a filtered (--package) run.
 if [[ ${#PACKAGES[@]} -gt 0 && -f "$SIDECAR" ]]; then
   jq -c '
     .advisories // {} | to_entries[] |
-    select(.key as $k | $ARGS.positional | index($k) | not) |
+    select(.value.pkgname as $n | $ARGS.positional | index($n) | not) |
     {key, value}
   ' "$SIDECAR" --args "${PACKAGES[@]}" >>"$ENTRIES" 2>/dev/null || true
 fi
