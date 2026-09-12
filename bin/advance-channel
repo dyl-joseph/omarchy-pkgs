@@ -364,12 +364,11 @@ print_info "Cleaning $TO repository..."
 print_info "Updating $TO repository database..."
 "$BUILD_ROOT/bin/update-repo" --mirror "$TO" --arch "$ARCH"
 
-# OPR advisory sidecar (#378): carry the CVE metadata for moved packages
-# forward with the artifacts they describe. The destination database stays
-# authoritative on which versions exist; entries are merged by package name
-# and never rewrite a package file. A merged sidecar is new bytes, so its
-# detached signature is dropped with a warning — visible + fail-open until
-# the next signed ingest refresh.
+# OPR advisory sidecar (#378): carry CVE metadata for moved artifacts.
+# Destination db is the authority on which versions exist. Entries merge by
+# pkgname:pkgver-pkgrel:arch and never rewrite a package file. A merged
+# sidecar is new bytes, so its detached signature is dropped with a warning
+# until the next signed ingest refresh.
 if [[ -f "$SOURCE_DIR/omarchy.advisories.json" ]]; then
   if [[ ! -f "$TARGET_DIR/omarchy.advisories.json" ]]; then
     cp -p "$SOURCE_DIR/omarchy.advisories.json" "$TARGET_DIR/omarchy.advisories.json"
@@ -377,13 +376,30 @@ if [[ -f "$SOURCE_DIR/omarchy.advisories.json" ]]; then
       cp -p "$SOURCE_DIR/omarchy.advisories.json.sig" "$TARGET_DIR/omarchy.advisories.json.sig" || true
     echo "  carried advisory sidecar from $FROM (new destination file)"
   else
-    dest_names=$(tar -xOf "$TARGET_DIR/omarchy.db.tar.zst" --wildcards '*/desc' 2>/dev/null |
-      awk '$0 == "%NAME%" { getline; print }' | sort -u | jq -R . | jq -s .)
+    dest_keys=$(tar -xOf "$TARGET_DIR/omarchy.db.tar.zst" --wildcards '*/desc' 2>/dev/null |
+      awk '
+        function emit() {
+          if (name != "" && version != "") {
+            pkgrel = version
+            sub(/.*-/, "", pkgrel)
+            pkgver = version
+            sub(/-[^-]+$/, "", pkgver)
+            if (arch == "") arch = "x86_64"
+            printf "%s:%s-%s:%s\n", name, pkgver, pkgrel, arch
+          }
+          name=""; version=""; arch=""
+        }
+        $0 == "%FILENAME%" { emit(); getline; next }
+        $0 == "%NAME%" { getline; name=$0; next }
+        $0 == "%VERSION%" { getline; version=$0; next }
+        $0 == "%ARCH%" { getline; arch=$0; next }
+        END { emit() }
+      ' | sort -u | jq -R . | jq -s .)
     merged=$(mktemp)
-    if jq -s --argjson dest_names "$dest_names" '
+    if jq -s --argjson dest_keys "$dest_keys" '
         (.[1].advisories // {}) as $src |
         (.[0].advisories // {}) as $dst |
-        ($dest_names | map({(.): true}) | add // {}) as $wanted |
+        ($dest_keys | map({(.): true}) | add // {}) as $wanted |
         {schema: 1, channel: .[0].channel, arch: .[0].arch,
          generated_at: (.[0].generated_at // .[1].generated_at // ""),
          advisories: ($dst + ($src | with_entries(select(.key as $k | $wanted[$k]))))}

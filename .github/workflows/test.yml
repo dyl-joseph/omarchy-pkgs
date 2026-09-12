@@ -45,4 +45,5 @@ jobs:
               ./bin/omarchy-pkgs self-test
               ./bin/omarchy-release self-test
               ./tests/advisory-sidecar.sh
+              ./tests/fetch-advisories.sh
             '

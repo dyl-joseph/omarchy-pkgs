@@ -14,14 +14,17 @@ A sidecar beside the pacman database, per channel/arch:
 - `pkgs.omarchy.org/<channel>/<arch>/omarchy.advisories.json`
 - `pkgs.omarchy.org/<channel>/<arch>/omarchy.advisories.json.sig`
 
-Entries are keyed by package name and pin the scanned version:
+Entries are keyed by `pkgname:pkgver-pkgrel:arch` so two published
+versions cannot clobber each other. A feed for another version does
+not stamp the live package.
 
 ```json
 {
   "schema": 1, "channel": "edge", "arch": "x86_64",
   "generated_at": "2026-09-11T00:00:00Z",
   "advisories": {
-    "mise-bin": {
+    "mise-bin:2026.9.1-1:x86_64": {
+      "pkgname": "mise-bin",
       "pkgver": "2026.9.1", "pkgrel": "1", "arch": "x86_64",
       "artifact": "mise-bin-2026.9.1-1-x86_64.pkg.tar.zst",
       "cve_ids": ["CVE-2026-12345"],
@@ -76,21 +79,27 @@ advisory band for brew/flatpak/apt routes.
 ## Refresh without rebuild
 
 ```bash
+# Produce a versioned feed from OSV, then ingest it:
+bin/fetch-advisories --mirror edge --arch x86_64 --package mise-bin --feed ./advisories-feed
+bin/sync-advisories --mirror edge --arch x86_64 --feed ./advisories-feed
+
 # Refresh one channel/arch from an OPR-operated feed dir:
 bin/sync-advisories --mirror edge --arch x86_64 --feed ./advisories-feed
 
 # First milestone demo (mise-bin):
 bin/sync-advisories --mirror edge --arch x86_64 --package mise-bin --feed ./feed --no-sign
-# ... new CVE lands in ./feed/mise-bin.json ...
+# ... new CVE lands in ./feed/mise-bin/<pkgver>-<pkgrel>/x86_64.json ...
 bin/sync-advisories --mirror edge --arch x86_64 --package mise-bin --feed ./feed --no-sign
 # The sidecar changed; every .pkg.tar.zst kept its bytes.
 ```
 
-Feed input is one JSON file per package (`<feed>/<pkgname>.json`)
-with `cve_ids`, `cve_max_severity`, `severity_scale`,
-`advisory_as_of`, `scan_source`, and optional `note`. A missing file
-is `missing`, not an error. `bin/sync-advisories --dry-run` previews
-without writing.
+Feed input is one JSON file per published artifact
+(`<feed>/<pkgname>/<pkgver>-<pkgrel>/<arch>.json`) with `pkgname`,
+`pkgver`, `pkgrel`, `arch`, `cve_ids`, `cve_max_severity`,
+`severity_scale`, `advisory_as_of`, `scan_source`, and optional `note`.
+A missing file is `missing`, not an error. A file for another version
+is ignored for the live package. `bin/sync-advisories --dry-run`
+previews without writing.
 
 `bin/repo advisories` forwards to the repository host like the other
 published-tree commands (`--local` forces local execution).
@@ -116,7 +125,8 @@ remains the authority on what is installed.
 
 `bin/repo advance` carries advisory entries forward with the packages
 they describe (edge → rc → stable, `--arch` per architecture):
-entries for moved packages are merged into the destination sidecar,
-and the destination database remains the authority on which versions
-exist. A version that advance did not move keeps its old entry until
-the next ingest refresh marks it missing/stale.
+entries for moved **artifacts** (same pkgname:pkgver-pkgrel:arch) are
+merged into the destination sidecar, and the destination database
+remains the authority on which versions exist. A version that advance
+did not move keeps its old entry until the next ingest refresh marks
+it missing/stale.
