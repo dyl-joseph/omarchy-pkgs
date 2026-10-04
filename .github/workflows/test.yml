@@ -68,5 +68,6 @@ jobs:
               ./tests/limine-mkinitcpio-hook.sh
               ./tests/voxtype-bin-install.sh
               pacman -S --noconfirm --quiet rclone >/dev/null
+              ./tests/sync-repo-aliases.sh
               ./tests/publish-artifact.sh
             '
