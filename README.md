@@ -257,6 +257,8 @@ bin/repo clean --dry-run            # Preview
 ```
 
 Removes old package versions from the file system. **Does not update the database.**
+Keeps the requested number of newest files plus any older version still referenced
+by either local database name. An unreadable database stops cleanup before deletion.
 
 ### Update
 

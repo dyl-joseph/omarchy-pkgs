@@ -65,6 +65,7 @@ jobs:
               ./tests/pinned-sources.sh
               ./tests/controller.sh
               ./tests/artifact-helpers.sh
+              bash tests/clean-repo.sh
               ./tests/limine-mkinitcpio-hook.sh
               ./tests/voxtype-bin-install.sh
               pacman -S --noconfirm --quiet rclone >/dev/null
