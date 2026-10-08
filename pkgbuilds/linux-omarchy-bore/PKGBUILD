@@ -3,7 +3,7 @@
 
 pkgbase=linux-omarchy-bore
 pkgver=7.2.8
-pkgrel=2
+pkgrel=5
 pkgdesc='Omarchy Linux (BORE CPU scheduler, ADIOS I/O scheduler)'
 url='https://omarchy.org'
 arch=(
@@ -165,6 +165,8 @@ source=(
   0703-pci-vmd-scan-bios-enumerated-devices.patch{,.sig}
   0704-pci-vmd-meteor-lake-mtl016-flush.patch{,.sig}
   0705-pci-toshiba-ahci-ssd-dma-alias-quirk.patch{,.sig}
+  0711-iommu-amd-perfopt-support.patch{,.sig}
+  0712-drm-amdgpu-perfopt-in-identity-domain.patch{,.sig}
   0740-hwmon-updates.patch{,.sig}
   0741-hwmon-fixes-1.patch{,.sig}
   0742-hwmon-fixes-2.patch{,.sig}
@@ -172,10 +174,14 @@ source=(
   0800-platform-updates.patch{,.sig}
   0801-amd-pmf-util-unbind-use-after-free.patch{,.sig}
   0802-platform-fixes.patch{,.sig}
+  0803-acpi-battery-hook-api-acpi-prefix.patch{,.sig}
+  0804-acpi-battery-unified-hooks-acpi-sbs.patch{,.sig}
+  0805-hwmon-applesmc-charge-control-end-threshold.patch{,.sig}
   0850-futex-wait-multiple.patch{,.sig}
   0851-futex-wait-multiple-fixes.patch{,.sig}
   0852-futex-wait-multiple-abi-fixes.patch{,.sig}
-  0860-ftrace-module-enable-sorted-symbol-search.patch{,.sig}
+  0860-module-add-module-kallsyms-on-each-addr.patch{,.sig}
+  0861-ftrace-drop-weak-function-locations-of-modules.patch{,.sig}
   8204-mm-opportunistic-compaction.patch{,.sig}
   8205-mm-hint-uses-allocation-order.patch{,.sig}
   8206-mm-carry-order-and-hint-in-one-word.patch{,.sig}
@@ -442,6 +448,10 @@ b2sums=('5326dde778eb945f282740ef0d8765b46fbd198f1209cdfd7b91e5dac1312fc01f8bf0b
         'SKIP'
         'da96dbbe3b6b4e189cf7bdce14647bba07bbc5599ce28ed385a1c34d237ee7ae3ac595d2552444615f2b15c2b7eda42f40743d5bdebd443e3ec31e5743f59056'
         'SKIP'
+        'cb2494c930b2c2c4cd6755494339c5f95ace87940b2b2e51928d98ea63262e4bf7a4245f629b8bb06e7592f45a0c379e5583c8695563011009fdb07f965d7c1a'
+        'SKIP'
+        '6083db5b92aa46bf54144b4d2fab368916974ef01334fbe934bded3818c5dfb4fc8d5d0e896bf1baddc29aac1c559f80dabc727082a757301117843def8089c8'
+        'SKIP'
         'c25bff6e5be62aca887ae0781899e37a39e1aec90f0eb934ec5394abf560f4d02ad1fb3973a45d00058b46555bbc8d9febfcc8026e210f53a8864a91b3b80a9d'
         'SKIP'
         'e70e0077249bf008e069041a0239c6bb63075044cd0df3218649ff92a6a2d43467026886f2a6a70c70552268f6936764459d7cc0817a103b6a0f74c37c52c72d'
@@ -456,13 +466,21 @@ b2sums=('5326dde778eb945f282740ef0d8765b46fbd198f1209cdfd7b91e5dac1312fc01f8bf0b
         'SKIP'
         '4e4792acaf0455f41cb1541d20d37e7a39104aa2dfb505e9be29dc3e7fecf328557780982b32cd8f67f77594542f5b8104766a4e8b5ce2270c9c601728363b3f'
         'SKIP'
+        '00417f024d2cc0b0fad28dec7f11c3054f5da7bf8c353d06fd1086be1926eacbe07ba924380157f270aac910d771f909f34beed0f60106f6ae60c96f58423b4a'
+        'SKIP'
+        '2c254a2df00e79f03b51d13846f232073e9276e022c7bf46bfe810cc98456d481535152afa9d915e0726e7701594453f9363b6190b8e616db203d176a08fd31f'
+        'SKIP'
+        'cbfa20431371f3332f28013bfa21beef21a5a6f616e09fa91e9adb42899cb2e1880e27cf4b90bba980bce26710af3ac3c1e49054df4e48051bcc4612732d3e9e'
+        'SKIP'
         'aca0527f5630671a319e7ecff958a3a64f29df73b427c67c1d29763cc1801fa82e96761c3a61c22d936913943a49261da64d490a0752ba9ffc8e0c1d92f99835'
         'SKIP'
         '803736a8e836560b3e50b7c0c8cf1f9ebb16b8642cc7bc6e5167d19037bd757431565fe4581776e50eb2693c49f778a24fecff41a553612e7e498f755b8f2f67'
         'SKIP'
         '4bc132d9c34deaae9b13d08dcff8ea83aa8f9ce4398531e0e0a80df30da3808815f3a587fe5627f6553b8e9c2aea6cc1749b752250a91c94f1cf8ba4f3eb5e8d'
         'SKIP'
-        'b76c03e8c59c0d2c06d00130cbe4984932762107f3d8180f90ac6c63bd435d6b8dfd317b9d1e756a89c513a20bdb52dcf4f3887daa6598449e560ca1076c5a1d'
+        '335c0c1164e9a2b9a9a252ddf7418ca0e6493f2f0fddcf3f01ae20666b6cb6713b8bf7a2a165d37485d2107b6c00f42b201974154c41c15c4456615b3bb0d78f'
+        'SKIP'
+        '01a28159b9c42e6b52147d1b061e1a2cb40ee381f8b6f7e2db3f94adc160365bc0dee602713cf42745fd2275b822b273df25d739d7b77f03273922edc746e50f'
         'SKIP'
         '42703ec988c2b1865fbe4eef67840f4370958e3e874d9f8a03a46c43619bed7656c56cae0ef1d8cca5340648b47ba7ddf813d25d9db3307f10146c45b8e34ade'
         'SKIP'
@@ -482,7 +500,7 @@ b2sums=('5326dde778eb945f282740ef0d8765b46fbd198f1209cdfd7b91e5dac1312fc01f8bf0b
         'SKIP'
         'ae93d961d0eef41ed39c473fe9478b62fab13ba395333b3c11b34b7787904a3d2684520ec76dbe2603dd96a146a68bcbe98da1b7e4cc1e659246127384bce22c'
         'SKIP')
-b2sums_x86_64=('7bcc8b4bc054268c8aa7aec3c6db22d6773d4bca1322edc157c7d23095998eedb0c6698d042310fced5fd759347297c500d2fa987bd71684c8c043c395ce4fc8')
+b2sums_x86_64=('a1961cda00700926c9618bd311b83bdbc1a392c1dde41d541de9f091b750121cc879560ffd1c398ab75078588e0677726eedb84529a13d66be934c85be5f7a73')
 
 # https://www.kernel.org/pub/linux/kernel/v7.x/sha256sums.asc
 sha256sums=('12e8d5a973d1ad7c5a5c69882e4022b131ed715db7003fdcd760ddf8c3e51941'
@@ -735,6 +753,10 @@ sha256sums=('12e8d5a973d1ad7c5a5c69882e4022b131ed715db7003fdcd760ddf8c3e51941'
             'SKIP'
             '3175c56fd2935848ce99fe10be1bc348231909f8479c3d3af911c5c7ab7f381b'
             'SKIP'
+            '30a12a616afa8fe95b969e90b42aeb240962b9fab8b8bd357ac00706abdd68c7'
+            'SKIP'
+            'eb0ebb8c55332dab8931c667ec84cd32c91c657d21af4504327ae05643108e1d'
+            'SKIP'
             '945c90d99f9a9fa47d61e471f76d17c0229ffa0fa8cda22de990a2ccc4194bb2'
             'SKIP'
             '70ff41b2341836c27c5545a7948258f137d991c2879cbeb29f7af740c11d20e6'
@@ -749,13 +771,21 @@ sha256sums=('12e8d5a973d1ad7c5a5c69882e4022b131ed715db7003fdcd760ddf8c3e51941'
             'SKIP'
             'a008c052ca657efcd4e27b8f7b819adbc9606e261aac37d41a40cf67c094cff9'
             'SKIP'
+            '57169ef893dff957cbf33f7c0dc22f2fdfcfcb3befcd62ad59e2456484423bac'
+            'SKIP'
+            '01ecc1adbe715bb31153a2350ca46e1cb8a6e3fdc6899b2debeff015af2412ed'
+            'SKIP'
+            'a4331d3968fc5002534063b42bd219bddfe4a7d6b08e4cb30ed60f4366ca3c41'
+            'SKIP'
             '028bf538c870465e1752514725372fa9eef6b7178d9b8d1e2ecc15edc5a63cc8'
             'SKIP'
             'a92a84405ee9845738c6b52d8f0f0eca16eb40afe0ebe0f4e9e1168597675311'
             'SKIP'
             '44a0b10a6dc83465ea86f5fba936b2bfbeffb1b3f0b2e04013bfed99ba4f6c5a'
             'SKIP'
-            'ab4a43d7b8d56a4405aaebaac00dd33d2019cae407039fad4b0dae9ba1ffaa78'
+            '6f01b5357af7deed3f4bccea6678b4d9e8afc83e598978f42f244241667f975d'
+            'SKIP'
+            '0da7247035a359e2491933f9effff43ea7b29748f21a0e3080bef0018c2488e3'
             'SKIP'
             'f81f6b5769e47716ca318ecf76ab1c0fafa0e165fa858a64251359937bffcf04'
             'SKIP'
