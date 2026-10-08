@@ -7,8 +7,8 @@
 # upstream's release cadence outruns the AUR.
 
 pkgname=openclaw
-pkgver=2026.9.3
-pkgrel=1
+pkgver=2026.9.8
+pkgrel=2
 pkgdesc='Multi-channel AI gateway with extensible messaging integrations'
 arch=(x86_64 aarch64)
 url=https://github.com/openclaw/openclaw
@@ -29,7 +29,7 @@ optdepends=(
     'go: for installing skill tools not packaged for Arch'
 )
 source=($pkgname-$pkgver.tgz::https://registry.npmjs.org/$pkgname/-/$pkgname-$pkgver.tgz)
-sha256sums=('d1c63366833f8ae4a6ab4f3b60b1aa84ca82d03dba13d3d3eba989aa159e2449')
+sha256sums=('317e0a58db32b386e01187fe9c5c4de541f4ce6d815657bf79a102609b81752a')
 options=(!debug !strip)
 install=$pkgname.install
 noextract=($pkgname-$pkgver.tgz)
