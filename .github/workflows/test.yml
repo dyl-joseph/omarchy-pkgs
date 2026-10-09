@@ -48,6 +48,7 @@ jobs:
             archlinux:base-devel bash -lc '
               set -euo pipefail
               pacman -Syu --noconfirm git jq python libarchive neovim tmux
+              python tests/owe-package-restart.py
               python tests/oma-service-removal.py
               python tests/upstream-watch.py
               bash tests/ipu7-install.sh
@@ -71,4 +72,8 @@ jobs:
               ./tests/superwhisper-bin-install.sh
               pacman -S --noconfirm --quiet rclone >/dev/null
               ./tests/publish-artifact.sh
+              shopt -s nullglob
+              for test in pkgbuilds/*/test.sh; do
+                bash "$test"
+              done
             '
