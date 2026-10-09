@@ -22,6 +22,7 @@ on:
 
 jobs:
   sync:
+    if: github.repository == 'omacom/omarchy-pkgs'
     runs-on: ubuntu-latest
     permissions:
       contents: write
