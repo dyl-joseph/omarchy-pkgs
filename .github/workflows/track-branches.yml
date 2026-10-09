@@ -33,6 +33,8 @@ concurrency:
 
 jobs:
   track:
+    # Only the upstream repository owns the production tracking credentials.
+    if: github.repository == 'omacom/omarchy-pkgs'
     runs-on: ubuntu-latest
     permissions:
       contents: read
