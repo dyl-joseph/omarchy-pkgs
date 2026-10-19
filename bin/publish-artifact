@@ -2,10 +2,12 @@
 # Publish built packages into one channel of the remote repository,
 # incrementally and immutably.
 #
-#   publish-artifact --mirror <edge|rc|stable> --arch <arch> <pkg files...>
+#   publish-artifact --mirror <edge|rc|stable> --arch <arch> [--newer-only] <pkg files...>
 #
 # What it does, in order:
-#   1. pull the channel's current database from the remote
+#   1. pull the channel's current database from the remote; with --newer-only,
+#      drop every package the channel already serves at that version or newer
+#      (an RC carried into edge must never take edge backwards)
 #   2. refuse if any package filename already exists on the remote
 #   3. sign each package (GPG_PRIVATE_KEY / GPG_PASSPHRASE)
 #   4. repo-add the packages into the pulled database (replaces the entry
@@ -23,16 +25,19 @@ set -euo pipefail
 BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
 source "$BUILD_ROOT/helpers/message-helpers.sh"
 source "$BUILD_ROOT/helpers/paths.sh"
+source "$BUILD_ROOT/helpers/repository-aliases.sh"
 
 REMOTE=${REMOTE:-pkgs.omarchy.org:omarchy-pkgs}
 PREFIX=${OMARCHY_PUBLISH_PREFIX:-}
+NEWER_ONLY=false
 FILES=()
 while [[ $# -gt 0 ]]; do
   case $1 in
   --mirror) MIRROR=$2; require_valid_mirror "$MIRROR"; shift 2 ;;
   --arch) ARCH=$2; require_valid_arch "$ARCH"; shift 2 ;;
   --remote) REMOTE=$2; shift 2 ;;
-  -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+  --newer-only) NEWER_ONLY=true; shift ;;
+  -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
   -*) print_error "Unknown option: $1"; exit 1 ;;
   *) FILES+=("$1"); shift ;;
   esac
@@ -65,6 +70,28 @@ if grep -q '^omarchy.db.tar.zst$' <<<"$listing"; then
   print_info "Pulled current database ($(tar -tf "$WORK/repo/omarchy.db.tar.zst" | grep -c '/$') entries)"
 else
   print_warning "No database at $DEST — creating a new one"
+fi
+
+if [[ "$NEWER_ONLY" == true && -f "$WORK/repo/omarchy.db.tar.zst" ]]; then
+  served=$(tar -xO --zstd -f "$WORK/repo/omarchy.db.tar.zst" --wildcards '*/desc' 2>/dev/null | awk '
+    $0 == "%NAME%"    { getline; name = $0; next }
+    $0 == "%VERSION%" { getline; print name, $0 }')
+  keep=()
+  for f in "${FILES[@]}"; do
+    name=$(bsdtar -xOf "$f" .PKGINFO | awk -F' = ' '$1=="pkgname"{print $2}')
+    ver=$(bsdtar -xOf "$f" .PKGINFO | awk -F' = ' '$1=="pkgver"{print $2}')
+    have=$(awk -v n="$name" '$1 == n {print $2; exit}' <<<"$served")
+    if [[ -n "$have" ]] && (( $(vercmp "$ver" "$have") <= 0 )); then
+      print_info "$MIRROR already serves $name $have, skipping $(basename "$f")"
+    else
+      keep+=("$f")
+    fi
+  done
+  if (( ${#keep[@]} == 0 )); then
+    print_success "Nothing newer than what $DEST serves; nothing published"
+    exit 0
+  fi
+  FILES=("${keep[@]}")
 fi
 
 # --- 2. same-name collisions ----------------------------------------------
@@ -103,6 +130,7 @@ done
 ( cd "$WORK/repo" && repo-add --quiet omarchy.db.tar.zst "${FILES[@]/#*\//}" )
 ln -sf omarchy.db.tar.zst "$WORK/repo/omarchy.db"
 ln -sf omarchy.files.tar.zst "$WORK/repo/omarchy.files"
+require_repository_aliases "$WORK/repo"
 print_info "Database now has $(tar -tf "$WORK/repo/omarchy.db.tar.zst" | grep -c '/$') entries"
 
 # --- 5. upload: packages, signatures, database last -----------------------
@@ -114,5 +142,10 @@ for f in "${FILES[@]}"; do
   b=$(basename "$f")
   grep -qxF "$b" <<<"$listing" && grep -qxF "$b.sig" <<<"$listing" || { print_error "Upload incomplete: $b"; exit 1; }
 done
-rclone copy "$WORK/repo" "$DEST" --s3-no-head --checksum --copy-links --filter '+ omarchy.db*' --filter '+ omarchy.files*' --filter '- *'
+if ! rclone copy "$WORK/repo" "$DEST" --s3-no-head --checksum --copy-links --filter '+ omarchy.db*' --filter '+ omarchy.files*' --filter '- *'; then
+  print_error "Database upload failed"
+  print_warning "Some database files may have been updated while others were not."
+  print_warning "Repository aliases may disagree. Check the channel before retrying."
+  exit 1
+fi
 print_success "Published ${#FILES[@]} package(s) to $DEST"
