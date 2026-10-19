@@ -1,5 +1,14 @@
 {
   "source": "local",
+  "upstream": {
+    "git_tags": "https://github.com/omacom/omarchy-hyprland-titlebars.git",
+    "tag_pattern": "v{pkgver}",
+    "sources": {
+      "any": [
+        "https://github.com/omacom/omarchy-hyprland-titlebars/archive/refs/tags/{tag}.tar.gz"
+      ]
+    }
+  },
   "rebuild_on": [
     "hyprland"
   ],
@@ -8,7 +17,7 @@
       "hyprland": "0.56.2-4"
     },
     "aarch64": {
-      "hyprland": "0.56.2-5"
+      "hyprland": "0.56.2-7"
     }
   }
 }

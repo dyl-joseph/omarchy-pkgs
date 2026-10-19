@@ -10,10 +10,10 @@
 #    provenance only (empty when cut from a bare commit). omarchy and
 #    omarchy-settings must always carry identical _tag/_commit/pkgver/sha256sums.
 pkgname='omarchy-settings'
-_tag='v4.0.4'
-_commit='c668141e9c42b13c80c9ca4ea108e11708c5e8a5'
-pkgver=4.0.4
-pkgrel=6
+_tag='v4.0.5'
+_commit='94a8fbc2d67eec5673c7f16b8c5e8a9c8452ffdc'
+pkgver=4.0.5
+pkgrel=1
 pkgdesc='Omarchy user defaults, /etc/skel content, fonts, plymouth theme, and support helpers'
 # Arch-specific because the shipped /etc tree is not the same on every
 # architecture for older sources: their zram and oomd drop-ins belong to the
@@ -134,7 +134,7 @@ if [[ -n "${OMARCHY_SRC:-}" ]]; then
   sha256sums=()
 else
   source=("omarchy::git+https://github.com/basecamp/omarchy.git#commit=${_commit}")
-  sha256sums=('8371b148aa06e9d0627c9e11668ef2dfdf54c4a9e5ffbee5aee08c3945073618')
+  sha256sums=('ce413d3fb5b90fab5b2e5cec66552a0562bc1fa3503e3b02e6c067c9a7a7a687')
 fi
 
 prepare() {
@@ -205,6 +205,13 @@ package() {
   install -Dm644 default/fontconfig/conf.avail/50-omarchy.conf "$pkgdir/usr/share/fontconfig/conf.avail/50-omarchy.conf"
   install -d "$pkgdir/etc/fonts/conf.d"
   ln -sfn /usr/share/fontconfig/conf.avail/50-omarchy.conf "$pkgdir/etc/fonts/conf.d/50-omarchy.conf"
+  # ALSA UCM profiles for sound cards alsa-ucm-conf has none for yet: NVIDIA's
+  # MT8901 SoundWire profiles for the N1x, from alsa-ucm-conf#862, until a
+  # release ships them. Drop the copy once alsa-ucm-conf does.
+  if [[ -d default/alsa/ucm2 ]]; then
+    install -d "$pkgdir/usr/share/alsa/ucm2"
+    cp -a default/alsa/ucm2/. "$pkgdir/usr/share/alsa/ucm2/"
+  fi
   install -Dm644 default/xdg-terminal-exec/hyprland-xdg-terminals.list "$pkgdir/usr/share/xdg-terminal-exec/hyprland-xdg-terminals.list"
   install -Dm644 default/applications/mimeapps.list "$pkgdir/usr/share/applications/mimeapps.list"
   install -Dm644 default/systemd/user/bt-agent.service "$pkgdir/usr/lib/systemd/user/bt-agent.service"
@@ -225,6 +232,16 @@ package() {
   if [[ -f default/systemd/user/omarchy-brightness-keyboard-auto.service ]]; then
     install -Dm644 default/systemd/user/omarchy-brightness-keyboard-auto.service "$pkgdir/usr/lib/systemd/user/omarchy-brightness-keyboard-auto.service"
   fi
+  # First-run, a migration and their own setup commands enable the USB and
+  # Thunderbolt approval watchers. Left in /usr/share/omarchy/default alone,
+  # systemd cannot find them: the Thunderbolt migration fails, which holds back
+  # every migration after it, and first-run enables none of its units.
+  if [[ -f default/systemd/user/omarchy-usb-authorization.service ]]; then
+    install -Dm644 default/systemd/user/omarchy-usb-authorization.service "$pkgdir/usr/lib/systemd/user/omarchy-usb-authorization.service"
+  fi
+  if [[ -f default/systemd/user/omarchy-thunderbolt-authorization.service ]]; then
+    install -Dm644 default/systemd/user/omarchy-thunderbolt-authorization.service "$pkgdir/usr/lib/systemd/user/omarchy-thunderbolt-authorization.service"
+  fi
   # Marks app.slice (and only app.slice) as a systemd-oomd kill candidate, so
   # memory pressure costs one app scope instead of the compositor session.
   # Thresholds live in etc/systemd/oomd.conf.d/10-omarchy.conf. Both this and
@@ -238,6 +255,13 @@ package() {
   if [[ -f default/systemd/system/plocate-updatedb.service.d/10-omarchy.conf ]]; then
     install -Dm644 default/systemd/system/plocate-updatedb.service.d/10-omarchy.conf "$pkgdir/usr/lib/systemd/system/plocate-updatedb.service.d/10-omarchy.conf"
   fi
+  # systemd 262's NvPCR setup fails without a signed PCR policy in the UKI.
+  local unit
+  for unit in systemd-tpm2-setup-early.service systemd-pcrproduct.service systemd-pcrlogin@.service; do
+    if [[ -f default/systemd/system/$unit.d/10-omarchy-nvpcr.conf ]]; then
+      install -Dm644 "default/systemd/system/$unit.d/10-omarchy-nvpcr.conf" "$pkgdir/usr/lib/systemd/system/$unit.d/10-omarchy-nvpcr.conf"
+    fi
+  done
 
   # Same for applications/** — used by omarchy-refresh-applications,
   # omarchy-install-gaming-*, etc. to copy .desktop files into ~/.local/share.
@@ -254,6 +278,9 @@ package() {
   # omacom/omarchy#13362 moves the HOOKS baseline into its own drop-in.
   [[ ! -f $pkgdir/etc/mkinitcpio.conf.d/00-omarchy-hooks.conf ]] ||
     backup+=('etc/mkinitcpio.conf.d/00-omarchy-hooks.conf')
+  # Sources that answer ARP per interface ship this; keep local edits to it.
+  [[ ! -f $pkgdir/etc/sysctl.d/90-omarchy-arp.conf ]] ||
+    backup+=('etc/sysctl.d/90-omarchy-arp.conf')
   if [[ $CARCH == aarch64 ]]; then
     # Keep omarchy_hooks.conf and the Limine entry-tool config: without them a
     # kernel update on an encrypted aarch64 install rebuilds an initramfs with

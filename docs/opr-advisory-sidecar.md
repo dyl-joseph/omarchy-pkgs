@@ -77,25 +77,36 @@ advisory band for brew/flatpak/apt routes.
   when the feed moves even if the bits did not.
 - Each advisory file is **independently signed** with the same OPR repo
   key that signs packages (detached `.sig`). `bin/publish-artifact` uploads
-  that file when it is sitting beside the package. `bin/sync-repo` uploads
-  advisory files with checksums, so a refresh replaces the remote copy.
-  The package upload does not overwrite them. `bin/promote-build`,
-  `bin/advance-channel`, `bin/remove-package`, and `bin/clean-repo` carry
-  or delete the advisory with the package. There is no channel-wide
-  document.
+  and its signature when they sit beside the package, using checksums so
+  a refresh replaces the remote copy. `bin/promote-channel` downloads the
+  advisory and signature with each moving artifact before publishing it;
+  the RC release workflow uses the same copy helper when carrying the
+  release pair into edge. An absent advisory does not block a package; an rclone transport failure
+  still fails the publish job.
+  `bin/unpublish-packages` removes database entries but retains package
+  archives and their advisories in the bucket, matching the immutable
+  artifact policy. There is no channel-wide document.
 - "Trusted partner" writers are explicitly later: named org + key +
   audit log + revocation, or nothing.
 
 ## Refresh without rebuild
 
 ```bash
-# Produce a versioned feed from OSV, then ingest it:
+# Work on a local snapshot of the channel. Use the same configured rclone
+# remote and optional scratch prefix as the publishing workflows.
+remote="R2:omarchy-pkgs/${OMARCHY_PUBLISH_PREFIX:+$OMARCHY_PUBLISH_PREFIX/}edge/x86_64"
+export OMARCHY_REPO_ROOT="$(mktemp -d)"
+channel="$OMARCHY_REPO_ROOT/edge/x86_64"
+mkdir -p "$channel"
+rclone copy "$remote" "$channel" --s3-no-head \
+  --filter '+ omarchy.db.tar.zst' --filter '+ *.advisory.json' \
+  --filter '+ *.advisory.json.sig' --filter '- *'
+
+# Produce a versioned feed from OSV, then ingest it with the OPR signing key:
 bin/fetch-advisories --mirror edge --arch x86_64 --package mise-bin --feed ./advisories-feed
 bin/sync-advisories --mirror edge --arch x86_64 --feed ./advisories-feed
 
-# Refresh one channel/arch from an OPR-operated feed dir:
-bin/sync-advisories --mirror edge --arch x86_64 --feed ./advisories-feed
-
+# Local proof only; do not upload unsigned output:
 # First milestone demo (mise-bin):
 bin/sync-advisories --mirror edge --arch x86_64 --package mise-bin --feed ./feed --no-sign
 # ... new CVE lands in ./feed/mise-bin/<pkgver>-<pkgrel>/x86_64.json ...
@@ -111,8 +122,26 @@ A missing file is `missing`, not an error. A file for another version
 is ignored for the live package. `bin/sync-advisories --dry-run`
 previews without writing.
 
-`bin/repo advisories` forwards to the repository host like the other
-published-tree commands (`--local` forces local execution).
+Ingest reads a local channel database; `OMARCHY_REPO_ROOT` selects that
+snapshot. It does not contact a repository host or upload files itself.
+Use the OPR signing key for publishable output. `bin/publish-artifact`
+uploads a sidecar and its signature when they are staged beside the exact
+package archive supplied to it; existing publish and promote jobs serialize
+bucket writes with the shared `publish` concurrency group. Reusing those
+package bytes does not require a rebuild.
+
+The standalone remote refresh path is an operator-integration boundary:
+this change does not add a workflow that runs ingest and stages its output
+for publishing, or an automatic refresh schedule. A dedicated refresh job
+must use that same `publish` concurrency group before it writes to the
+bucket. Do not treat the local commands above as a completed remote refresh
+or bypass the workflow lock with a direct bucket upload.
+
+Unsigned refreshes are local-only. The current publisher copies supplied
+signatures but does not delete an old remote `.sig` when an unsigned
+replacement JSON is supplied; that old signature no longer verifies.
+Clients must verify the advisory signature before trusting its contents.
+Supply a fresh matching signature for every published refresh.
 
 ## Missing / stale policy
 
@@ -128,6 +157,9 @@ Missing and stale are first-class, not edge cases:
 - `ok`: a fresh report from the source, even when `cve_ids` is
   non-empty. A known CVE is information, not a build failure.
 
+These are advisory-data states, not transport guarantees: a failed download
+or upload still fails the publishing operation.
+
 Default for v1 is **visible + warn; unknown does not block**. Policy
 files on the client may opt into fail-closed; that policy lives with
 the client (see `HxHippy/omarchy-resolve#1`), never here. Pacman
@@ -137,5 +169,9 @@ remains the authority on what is installed.
 
 When an artifact is copied to another channel, its advisory file is
 copied with it. There is no merged channel document, and this does not
-add new advance behavior beyond that copy. A version that did not move
+change promotion eligibility beyond that copy. A version that did not move
 keeps the advisory file it already has.
+
+The release workflow's `--newer-only` carry into edge skips packages already
+served at the same or a newer version, including their advisory uploads.
+Refresh metadata for such a version through a serialized ingest/publish job as described above.
